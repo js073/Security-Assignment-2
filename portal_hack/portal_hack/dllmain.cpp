@@ -101,10 +101,12 @@ struct WindowState {
     HWND superJumpEnabled;
     HWND multiPortalEnabled;
     HWND weightBoxSpawnEnabled;
+    HWND miniGameEnabled;
 
     HWND superJumpLabel;
     HWND multiPortalLabel;
     HWND weightBoxSpawnLabel;
+    HWND miniGameLabel;
 };
 
 /**
@@ -115,6 +117,7 @@ struct HackState {
     bool superJump = false;
     bool multiPortals = false;
     bool weightBoxSpawn = false;
+    bool toggleMiniGame = false;
 };
 
 HackState* hackState = new HackState();
@@ -218,6 +221,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             0
         );
 
+        windowState->miniGameEnabled = CreateWindow(
+            L"Static",
+            L"Off",
+            WS_CHILD | WS_VISIBLE,
+            220,
+            130,
+            50,
+            30,
+            hwnd,
+            0,
+            windowState->global_hInstance,
+            0
+        );
+
         windowState->superJumpLabel = CreateWindow(
             L"Static",
             L"Press Space to super jump",
@@ -259,6 +276,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             0
         );
 
+        windowState->miniGameLabel = CreateWindow(
+            L"Static",
+            L"Lights out mini game, when active press 'N' for new game",
+            WS_CHILD | WS_VISIBLE,
+            280,
+            130,
+            290,
+            30,
+            hwnd,
+            0,
+            windowState->global_hInstance,
+            0
+        );
+
     case WM_COMMAND:
         if (LOWORD(wParam) == LOWORD(L"SuperJumpEnabled")) {
             AcquireSRWLockExclusive(&srwlock);
@@ -276,6 +307,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             AcquireSRWLockExclusive(&srwlock);
             hackState->weightBoxSpawn = !(hackState->weightBoxSpawn);
             ChangeOnOff(&windowState->weightBoxSpawnEnabled, hackState->weightBoxSpawn);
+            ReleaseSRWLockExclusive(&srwlock);
+        } else if (LOWORD(wParam) == LOWORD(L"MiniGameToggled")) {
+            AcquireSRWLockExclusive(&srwlock);
+            hackState->toggleMiniGame = !(hackState->toggleMiniGame);
+            ChangeOnOff(&windowState->miniGameEnabled, hackState->toggleMiniGame);
             ReleaseSRWLockExclusive(&srwlock);
         }
         break;
@@ -371,20 +407,19 @@ void CreateNewWindow(HINSTANCE hInstance) {
         NULL
     );
 
-    CreateWindow(
-        L"Static",
-        L"Press T to enter the 'Lights Out' minigame.",
-        WS_CHILD | WS_VISIBLE,
+    HWND miniGameButton = CreateWindow(
+        L"BUTTON",
+        L"Toggle Mini Game",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
         10,
         130,
-        450,
+        200,
         30,
         hwnd,
-        0,
+        (HMENU)L"MiniGameToggled",
         hInstance,
-        0
-    );
-
+        NULL
+        );
     ShowWindow(hwnd, SW_SHOWDEFAULT);
 
     // Enter the message loop
@@ -646,7 +681,8 @@ DWORD WINAPI MyThread(HMODULE module) {
             InitMiniGame();
             gameIsInit = false;
         }
-        if (GetAsyncKeyState('T') & 1) {
+        if (hackState->toggleMiniGame) {
+            hackState->toggleMiniGame = false;
             miniGame = !miniGame;
             if (miniGame && !gameIsInit) {
                 gameIsInit = true;

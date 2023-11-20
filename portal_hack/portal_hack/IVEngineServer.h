@@ -1,4 +1,7 @@
 #pragma once
+
+//Headerfile taken from Source Engine sourecode leak https://github.com/perilouswithadollarsign/cstrike15_src/blob/master/public/
+
 //-----------------------------------------------------------------------------
 // Purpose: Interface the engine exposes to the game DLL
 //-----------------------------------------------------------------------------

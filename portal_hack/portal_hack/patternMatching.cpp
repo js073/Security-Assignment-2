@@ -6,6 +6,8 @@
 
 // Code adapted from https://github.com/spirthack/CSGOSimple/blob/c37d4bc36efe99c621eb288fd34299c1692ee1dd/CSGOSimple/helpers/utils.cpp#L226
 
+// Function - perform pattern scanning function for functions in memory
+
 /*
      * @brief Scan for a given byte pattern on a module
      *

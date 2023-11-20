@@ -1,6 +1,6 @@
 #pragma once
 
-// Headerfile taken from https://github.com/perilouswithadollarsign/cstrike15_src/blob/master/public/cdll_int.h#L298
+// Headerfile taken from Source Engine sourecode leak https://github.com/perilouswithadollarsign/cstrike15_src/blob/master/public/cdll_int.h#L298
 
 
 class IVEngineClient
