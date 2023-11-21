@@ -7,7 +7,8 @@
 #include "IVEngineClient.h"
 #include "dllmain.h"
 #include "GetEntityList.h"
-#include <vector>
+#include <vector>'
+#include <cmath>
 
 using namespace std;
 
@@ -102,11 +103,13 @@ struct WindowState {
     HWND multiPortalEnabled;
     HWND weightBoxSpawnEnabled;
     HWND miniGameEnabled;
+    HWND teleportShiftEnabled;
 
     HWND superJumpLabel;
     HWND multiPortalLabel;
     HWND weightBoxSpawnLabel;
     HWND miniGameLabel;
+    HWND teleportShiftLabel;
 };
 
 /**
@@ -118,6 +121,7 @@ struct HackState {
     bool multiPortals = false;
     bool weightBoxSpawn = false;
     bool toggleMiniGame = false;
+    bool teleportshift = false;
 };
 
 HackState* hackState = new HackState();
@@ -235,6 +239,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             0
         );
 
+        windowState->teleportShiftEnabled = CreateWindow(
+            L"Static",
+            L"Off",
+            WS_CHILD | WS_VISIBLE,
+            220,
+            170,
+            50,
+            30,
+            hwnd,
+            0,
+            windowState->global_hInstance,
+            0
+        );
+
         windowState->superJumpLabel = CreateWindow(
             L"Static",
             L"Press Space to super jump",
@@ -290,6 +308,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             0
         );
 
+        windowState->teleportShiftLabel = CreateWindow(
+            L"Static",
+            L"Press P to teleport to your front",
+            WS_CHILD | WS_VISIBLE,
+            280,
+            170,
+            290,
+            30,
+            hwnd,
+            0,
+            windowState->global_hInstance,
+            0
+        );
+
     case WM_COMMAND:
         if (LOWORD(wParam) == LOWORD(L"SuperJumpEnabled")) {
             AcquireSRWLockExclusive(&srwlock);
@@ -312,6 +344,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             AcquireSRWLockExclusive(&srwlock);
             hackState->toggleMiniGame = !(hackState->toggleMiniGame);
             ChangeOnOff(&windowState->miniGameEnabled, hackState->toggleMiniGame);
+            ReleaseSRWLockExclusive(&srwlock);
+        } else if (LOWORD(wParam) == LOWORD(L"TeleportEnabled")) {
+            AcquireSRWLockExclusive(&srwlock);
+            hackState->teleportshift = !(hackState->teleportshift);
+            ChangeOnOff(&windowState->teleportShiftEnabled, hackState->teleportshift);
             ReleaseSRWLockExclusive(&srwlock);
         }
         break;
@@ -351,7 +388,7 @@ void CreateNewWindow(HINSTANCE hInstance) {
 
         // Window size
         600, 
-        250,
+        280,
 
         NULL,       
         NULL,       
@@ -420,6 +457,21 @@ void CreateNewWindow(HINSTANCE hInstance) {
         hInstance,
         NULL
         );
+
+    HWND teleportbutton = CreateWindow(
+        L"BUTTON",
+        L"Toggle TeleportShift",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+        10,
+        170,
+        200,
+        30,
+        hwnd,
+        (HMENU)L"TeleportEnabled",
+        hInstance,
+        NULL
+    );
+
     ShowWindow(hwnd, SW_SHOWDEFAULT);
 
     // Enter the message loop
@@ -638,6 +690,30 @@ void InitMiniGame() {
     std::cout << "finish game init\n";
 }
 
+void teleportShiftMove() {
+    if (GetAsyncKeyState('P')) {
+        const float pi = 2 * acos(0.0);
+        uintptr_t EnginePtr = (uintptr_t)GetModuleHandle(L"engine.dll");
+        float* look_x = (float*)(EnginePtr + 0x45808C);
+        float* look_y = (float*)(EnginePtr + 0x458090);
+        float* look_z = (float*)(EnginePtr + 0x458094);
+        //move in front of you for total of distance 33.33f
+        float angley = (float)((*look_y) * (pi / 180)); //convert angle to radians
+        float anglex = (float)((*look_x) * (pi / 180));
+        float x_axis = 33.33f * cos(angley);
+        float y_axis = 33.33f * sin(angley);
+        float z_axis = 33.33f * sin(-anglex);
+        std::cout << "y-axis face: " << y_axis << ", x-axis face: " << x_axis << std::endl;
+        uintptr_t ServerPtr = (uintptr_t)GetModuleHandle(L"server.dll");
+        uintptr_t fS = *(uintptr_t*)(ServerPtr + 0x006E4E94);
+        float* playerX = (float*)(fS + 0x304);
+        float* playerY = (float*)(fS + 0x308);
+        float* playerZ = (float*)(fS + 0x30C);
+        *playerX += x_axis;
+        *playerY += y_axis;
+        *playerZ += z_axis;
+    }
+}
 
 DWORD WINAPI MyThread(HMODULE module) {
     AllocConsole();
@@ -725,6 +801,15 @@ DWORD WINAPI MyThread(HMODULE module) {
             if (GetAsyncKeyState('C')) {
                 engineServer->ClientCmd("ent_create_portal_weight_box");
                 while (GetAsyncKeyState('C')) {
+                    Sleep(1);
+                }
+            }
+        }
+
+        if (hackState->teleportshift) {
+            if (GetAsyncKeyState('P')) {
+                teleportShiftMove();
+                while (GetAsyncKeyState('P')) {
                     Sleep(1);
                 }
             }
