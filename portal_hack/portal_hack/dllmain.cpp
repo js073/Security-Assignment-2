@@ -8,6 +8,8 @@
 #include "dllmain.h"
 #include "GetEntityList.h"
 #include <vector>
+#include <cmath>
+#include <string>
 
 using namespace std;
 
@@ -101,10 +103,14 @@ struct WindowState {
     HWND superJumpEnabled;
     HWND multiPortalEnabled;
     HWND weightBoxSpawnEnabled;
+    HWND teleportShiftEnabled;
+    HWND miniGameEnabled;
 
     HWND superJumpLabel;
     HWND multiPortalLabel;
     HWND weightBoxSpawnLabel;
+    HWND teleportShiftLabel;
+    HWND miniGameLabel;
 };
 
 /**
@@ -115,6 +121,9 @@ struct HackState {
     bool superJump = false;
     bool multiPortals = false;
     bool weightBoxSpawn = false;
+    bool teleportshift = false;
+    bool miniGame = false;
+    bool toogleMiniGame = false;
 };
 
 HackState* hackState = new HackState();
@@ -144,6 +153,8 @@ uint8_t* PatternScan(void* module, const char* signature);
 uint8_t* SecondPattern(void* module, const char* signature);
 
 bool grid[5][5] = {};
+
+int currentMoves = 0;
 
 void* FindInterface(HMODULE dll, const char* name) {
     auto a = GetProcAddress(dll, "CreateInterface");
@@ -218,6 +229,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             0
         );
 
+        windowState->teleportShiftEnabled = CreateWindow(
+            L"Static",
+            L"Off",
+            WS_CHILD | WS_VISIBLE,
+            220,
+            130,
+            50,
+            30,
+            hwnd,
+            0,
+            windowState->global_hInstance,
+            0
+        ); //check
+
         windowState->superJumpLabel = CreateWindow(
             L"Static",
             L"Press Space to super jump",
@@ -259,6 +284,34 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             0
         );
 
+        windowState->miniGameLabel = CreateWindow(
+            L"Static",
+            L"Lights out mini game, when active press 'N' for new game",
+            WS_CHILD | WS_VISIBLE,
+            280,
+            170,
+            290,
+            30,
+            hwnd,
+            0,
+            windowState->global_hInstance,
+            0
+        );
+
+        windowState->teleportShiftLabel = CreateWindow(
+            L"Static",
+            L"Press P to teleport to your front",
+            WS_CHILD | WS_VISIBLE,
+            280,
+            160,
+            290,
+            30,
+            hwnd,
+            0,
+            windowState->global_hInstance,
+            0
+        ); //check
+
     case WM_COMMAND:
         if (LOWORD(wParam) == LOWORD(L"SuperJumpEnabled")) {
             AcquireSRWLockExclusive(&srwlock);
@@ -276,6 +329,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             AcquireSRWLockExclusive(&srwlock);
             hackState->weightBoxSpawn = !(hackState->weightBoxSpawn);
             ChangeOnOff(&windowState->weightBoxSpawnEnabled, hackState->weightBoxSpawn);
+            ReleaseSRWLockExclusive(&srwlock);
+        }
+        else if (LOWORD(wParam) == LOWORD(L"TeleportEnabled")) {
+            AcquireSRWLockExclusive(&srwlock);
+            hackState->teleportshift = !(hackState->teleportshift);
+            ChangeOnOff(&windowState->teleportShiftEnabled, hackState->teleportshift);
+            ReleaseSRWLockExclusive(&srwlock); //incomplete
+        }
+        else if (LOWORD(wParam) == LOWORD(L"MiniGameToggled")) {
+            AcquireSRWLockExclusive(&srwlock);
+            hackState->toogleMiniGame = !(hackState->toogleMiniGame);
+            ChangeOnOff(&windowState->miniGameEnabled, hackState->toogleMiniGame);
             ReleaseSRWLockExclusive(&srwlock);
         }
         break;
@@ -371,19 +436,34 @@ void CreateNewWindow(HINSTANCE hInstance) {
         NULL
     );
 
-    CreateWindow(
-        L"Static",
-        L"Press T to enter the 'Lights Out' minigame.",
-        WS_CHILD | WS_VISIBLE,
+    HWND teleportbutton = CreateWindow(
+        L"BUTTON",
+        L"Toggle TeleportShift",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
         10,
         130,
-        450,
+        200,
         30,
         hwnd,
-        0,
+        (HMENU)L"TeleportEnabled",
         hInstance,
-        0
+        NULL
     );
+
+    HWND miniGameButton = CreateWindow(
+        L"BUTTON",
+        L"Toggle Mini Game",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+        10,
+        170,
+        200,
+        30,
+        hwnd,
+        (HMENU)L"MiniGameToggled",
+        hInstance,
+        NULL
+    );
+    ShowWindow(hwnd, SW_SHOWDEFAULT);
 
     ShowWindow(hwnd, SW_SHOWDEFAULT);
 
@@ -501,6 +581,7 @@ void FlipPixels(int i, int j) {
         }
     }
     grid[i][j] = !grid[i][j];
+    currentMoves += 1;
 }
 
 int GetClosest(float x, float* in) {
@@ -530,6 +611,7 @@ void NewLevel() {
             }
         }
     }
+    currentMoves = 0;
 }
 
 void DisplayGrid() {
@@ -587,6 +669,29 @@ void DisplayGrid() {
 
 }
 
+void teleportShiftMove() {
+    const float pi = 2 * acos(0.0);
+    uintptr_t EnginePtr = (uintptr_t)GetModuleHandle(L"engine.dll");
+    float* look_x = (float*)(EnginePtr + 0x45808C);
+    float* look_y = (float*)(EnginePtr + 0x458090);
+    float* look_z = (float*)(EnginePtr + 0x458094);
+    //move in front of you for total of distance 33.33f
+    float angley = (float)((*look_y) * (pi / 180)); //convert angle to radians
+    float anglex = (float)((*look_x) * (pi / 180));
+    float x_axis = 33.33f * cos(angley);
+    float y_axis = 33.33f * sin(angley);
+    float z_axis = 33.33f * sin(-anglex);
+    std::cout << "y-axis face: " << y_axis << ", x-axis face: " << x_axis << std::endl;
+    uintptr_t ServerPtr = (uintptr_t)GetModuleHandle(L"server.dll");
+    uintptr_t fS = *(uintptr_t*)(ServerPtr + 0x006E4E94);
+    float* playerX = (float*)(fS + 0x304);
+    float* playerY = (float*)(fS + 0x308);
+    float* playerZ = (float*)(fS + 0x30C);
+    *playerX += x_axis;
+    *playerY += y_axis;
+    *playerZ += z_axis;
+}
+
 
 void InitMiniGame() {
     std::cout << "start game init\n";
@@ -634,35 +739,38 @@ DWORD WINAPI MyThread(HMODULE module) {
     SetNetOriginFunc = (SetNetOriginType)ps;
 
     bool isLoading = false;
-    bool miniGame = false;
+    //bool miniGame = false;
     bool gameIsInit = false;
 
     // Main loop
     while (true) {
-        if (miniGame && !isLoading && !gameIsInit) {
+        AcquireSRWLockExclusive(&srwlock);
+        if (hackState->miniGame && !isLoading && !gameIsInit) {
             DisplayGrid();
         }
-        if (miniGame && gameIsInit && !isLoading) {
+        if (hackState->miniGame && gameIsInit && !isLoading) {
             InitMiniGame();
             gameIsInit = false;
         }
-        if (GetAsyncKeyState('T') & 1) {
-            miniGame = !miniGame;
-            if (miniGame && !gameIsInit) {
+        if (hackState->toogleMiniGame) {
+            hackState->toogleMiniGame = false;
+            hackState->miniGame = !(hackState->miniGame);
+            if (hackState->miniGame && !gameIsInit) {
                 gameIsInit = true;
                 isLoading = true;
                 engineServer->ClientCmd("map testchmb_a_10");
                 Sleep(10);
             }
         }
-        
+        ReleaseSRWLockExclusive(&srwlock);
+
         if (!engineServer->IsInGame() && !isLoading) {
             isLoading = true;
         }
         else if (engineServer->IsInGame() && isLoading && !engineServer->IsDrawingLoadingImage()) {
             isLoading = false;
             Sleep(3000);
-            
+
             // Rerun the player and portal gun pointer paths in case anything has changed
             player->ReloadPointers();
             portalGun->ReloadPointers();
@@ -680,7 +788,7 @@ DWORD WINAPI MyThread(HMODULE module) {
         }
 
         // Allows switching of the portal gun's link ID for multiple portals.
-        if (hackState->multiPortals) { 
+        if (hackState->multiPortals) {
             PortalIDSwitch(portalGun->linkID);
         }
 
@@ -693,15 +801,148 @@ DWORD WINAPI MyThread(HMODULE module) {
                 }
             }
         }
+
+        if (hackState->teleportshift) {
+            if (GetAsyncKeyState('P')) {
+                teleportShiftMove();
+                while (GetAsyncKeyState('P')) {
+                Sleep(1);
+                }
+            }
+        }
         
         ReleaseSRWLockShared(&srwlock);
-    }
+        }
+        if (f) fclose(f);
+        FreeConsole();
+        FreeLibraryAndExitThread(module, 0);
+        return 0;
+    
+}
 
-    if (f) fclose(f);
-    FreeConsole();  
-    FreeLibraryAndExitThread(module, 0);
+// Functions used for DirectX hooking, adapted from: 
+
+#include "pch.h"
+#include <iostream>
+
+#include <d3d9.h>
+#include <d3dx9.h>
+
+#pragma comment(lib, "d3d9.lib")
+#pragma comment(lib, "d3dx9.lib")
+
+#include "detours.h"
+#pragma comment(lib, "detours.lib")
+
+
+HINSTANCE DllHandle;
+
+typedef HRESULT(__stdcall* endScene)(IDirect3DDevice9* pDevice);
+endScene pEndScene;
+
+LPD3DXFONT font;
+
+HRESULT __stdcall hookedEndScene(IDirect3DDevice9* pDevice) {
+    AcquireSRWLockShared(&srwlock);
+    if (hackState->multiPortals || hackState->miniGame) {
+
+        // Create textbox
+        // Create a black semi-transparent box with a darker border
+        int padding = 10;
+        int rectX1 = 100, rectX2 = 400, rectY1 = 50, rectY2 = 150;
+        D3DRECT rectangle = { rectX1 - padding, rectY1 - padding, rectX2 + padding, rectY2 + padding };
+        pDevice->Clear(1, &rectangle, D3DCLEAR_TARGET, D3DCOLOR_ARGB(150, 0, 0, 0), 0.0f, 0);
+
+        // Draw a darker border around the box
+        D3DRECT border = { rectX1 - padding - 1, rectY1 - padding - 1, rectX2 + padding + 1, rectY2 + padding + 1 };
+        pDevice->Clear(1, &border, D3DCLEAR_TARGET, D3DCOLOR_ARGB(150, 50, 50, 50), 0.0f, 0);
+
+        string textBoxText;
+        if (hackState->multiPortals) {
+            textBoxText = "Current portal likage ID: " + std::to_string(*(portalGun->linkID));
+        }
+        else if (hackState->miniGame) {
+            textBoxText = "Current moves: " + std::to_string(currentMoves);
+        }
+
+        std::cout << textBoxText << "\n";
+
+        // Display text inside the box (automatically wrapped)
+        if (!font)
+            D3DXCreateFont(pDevice, 16, 0, FW_BOLD, 1, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial", &font);
+
+        RECT textRectangle;
+        SetRect(&textRectangle, rectX1, rectY1, rectX2, rectY2);
+        auto temp = wstring(textBoxText.begin(), textBoxText.end());
+        std::wcout << temp << "\n";
+        const wchar_t* lstr = temp.c_str();
+        font->DrawText(NULL, lstr, -1, &textRectangle, DT_WORDBREAK | DT_NOCLIP | DT_LEFT, D3DCOLOR_ARGB(200, 153, 255, 153)); //draw text;
+
+         // call original endScene 
+    }
+    ReleaseSRWLockShared(&srwlock);
+    return pEndScene(pDevice);
+}
+
+void hookEndScene() {
+    IDirect3D9* pD3D = Direct3DCreate9(D3D_SDK_VERSION); // create IDirect3D9 object
+    if (!pD3D)
+        return;
+
+    D3DPRESENT_PARAMETERS d3dparams = { 0 };
+    d3dparams.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    d3dparams.hDeviceWindow = GetForegroundWindow();
+    d3dparams.Windowed = true;
+
+    IDirect3DDevice9* pDevice = nullptr;
+
+    HRESULT result = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, d3dparams.hDeviceWindow, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &d3dparams, &pDevice);
+    if (FAILED(result) || !pDevice) {
+        pD3D->Release();
+        return;
+    }
+    //if device creation worked out -> lets get the virtual table:
+    void** vTable = *reinterpret_cast<void***>(pDevice);
+
+    //now detour:
+
+    pEndScene = (endScene)DetourFunction((PBYTE)vTable[42], (PBYTE)hookedEndScene);
+
+    pDevice->Release();
+    pD3D->Release();
+}
+
+
+DWORD __stdcall EjectThread(LPVOID lpParameter) {
+    Sleep(100);
+    FreeLibraryAndExitThread(DllHandle, 0);
     return 0;
 }
+
+DWORD WINAPI Menue(HINSTANCE hModule) {
+    AllocConsole();
+    FILE* fp;
+    freopen_s(&fp, "CONOUT$", "w", stdout); //sets cout to be used with our newly created console
+
+    hookEndScene();
+
+    while (true) {
+        Sleep(50);
+        if (GetAsyncKeyState(VK_NUMPAD0)) {
+            DetourRemove((PBYTE)pEndScene, (PBYTE)hookedEndScene); //unhook to avoid game crash
+            break;
+        }
+    }
+    std::cout << "ight imma head out" << std::endl;
+    Sleep(1000);
+    fclose(fp);
+    FreeConsole();
+    CreateThread(0, 0, EjectThread, 0, 0, 0);
+    return 0;
+}
+
+
+
 
 BOOL APIENTRY DllMain(HMODULE hModule,
     DWORD  ul_reason_for_call,
@@ -716,6 +957,7 @@ BOOL APIENTRY DllMain(HMODULE hModule,
         windowState->global_hInstance = hModule;
         CloseHandle(CreateThread(nullptr, 0, (LPTHREAD_START_ROUTINE)MyThread, hModule, 0, nullptr));
         CloseHandle(CreateThread(nullptr, 0, (LPTHREAD_START_ROUTINE)CreateNewWindow, hModule, 0, nullptr));
+        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)Menue, NULL, 0, NULL);
     }
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
