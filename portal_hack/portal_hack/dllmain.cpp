@@ -27,17 +27,33 @@ public:
 */
 class Player {
     HMODULE serverModule;
+    HMODULE engineModule;
 public:
     Vector3* position;
     Vector3* velocity;
+    Vector3* camera;
     bool flying;
 
-    Player(HMODULE serverModule) {
+    Player(HMODULE serverModule, HMODULE engineModule) {
         position = new Vector3();
         velocity = new Vector3();
+        camera = new Vector3();
         flying = false;
         this->serverModule = serverModule;
+        this->engineModule = engineModule;
         this->ReloadPointers();
+    }
+
+    void ShiftForward() {
+        const float pi = 2 * acos(0.0);
+        //move in front of you for total of distance 33.33f
+        float moveDistance = 33.3f;
+        float angley = (float)(*(this->camera->y) * (pi / 180)); //convert angle to radians
+        float xDisplacement = moveDistance * cos(angley);
+        float yDisplacement = moveDistance * sin(angley);
+
+        *(this->position->x) += xDisplacement;
+        *(this->position->y) += yDisplacement;
     }
 
     /**
@@ -45,6 +61,8 @@ public:
     */
     void ReloadPointers() {
         uintptr_t server = (uintptr_t) this->serverModule;
+        uintptr_t engine = (uintptr_t) this->engineModule;
+
 
         // A pointer to a memory region containing numerous player object fields
         uintptr_t playerRegion = *(uintptr_t*)(server + 0x006E4E94);
@@ -57,6 +75,10 @@ public:
         this->position->x = (float*)(playerRegion + 0x304);
         this->position->y = (float*)(playerRegion + 0x308);
         this->position->z = (float*)(playerRegion + 0x30C);
+
+        this->camera->x = (float*)(engine + 0x45808C);
+        this->camera->y = (float*)(engine + 0x458090);
+        this->camera->z = (float*)(engine + 0x458094);
 
     }
 };
@@ -131,7 +153,7 @@ WindowState* windowState = new WindowState();
 
 
 //Sets up a wrapper class for the player and portal gun that will load pointers to the necessary memory locations.
-Player* player = new Player(GetModuleHandle(L"server.dll"));
+Player* player = new Player(GetModuleHandle(L"server.dll"), GetModuleHandle(L"engine.dll"));
 PortalGun* portalGun = new PortalGun(GetModuleHandle(L"server.dll"));
 
 // Various game engine functions
@@ -225,7 +247,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             0
         );
 
-        windowState->miniGameEnabled = CreateWindow(
+        windowState->teleportShiftEnabled = CreateWindow(
             L"Static",
             L"Off",
             WS_CHILD | WS_VISIBLE,
@@ -238,8 +260,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             windowState->global_hInstance,
             0
         );
-
-        windowState->teleportShiftEnabled = CreateWindow(
+        windowState->miniGameEnabled = CreateWindow(
             L"Static",
             L"Off",
             WS_CHILD | WS_VISIBLE,
@@ -252,6 +273,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             windowState->global_hInstance,
             0
         );
+
+
 
         windowState->superJumpLabel = CreateWindow(
             L"Static",
@@ -293,10 +316,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             windowState->global_hInstance, 
             0
         );
-
-        windowState->miniGameLabel = CreateWindow(
+        windowState->teleportShiftLabel = CreateWindow(
             L"Static",
-            L"Lights out mini game, when active press 'N' for new game",
+            L"Press P to teleport to your front",
             WS_CHILD | WS_VISIBLE,
             280,
             130,
@@ -307,20 +329,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             windowState->global_hInstance,
             0
         );
-
-        windowState->teleportShiftLabel = CreateWindow(
+        windowState->miniGameLabel = CreateWindow(
             L"Static",
-            L"Press P to teleport to your front",
+            L"Lights out mini game, when active press 'N' for new game",
             WS_CHILD | WS_VISIBLE,
             280,
             170,
             290,
-            30,
+            60,
             hwnd,
             0,
             windowState->global_hInstance,
             0
         );
+
+
 
     case WM_COMMAND:
         if (LOWORD(wParam) == LOWORD(L"SuperJumpEnabled")) {
@@ -443,13 +466,25 @@ void CreateNewWindow(HINSTANCE hInstance) {
         hInstance,
         NULL
     );
-
+    HWND teleportbutton = CreateWindow(
+        L"BUTTON",
+        L"Toggle TeleportShift",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+        10,
+        130,
+        200,
+        30,
+        hwnd,
+        (HMENU)L"TeleportEnabled",
+        hInstance,
+        NULL
+    );
     HWND miniGameButton = CreateWindow(
         L"BUTTON",
         L"Toggle Mini Game",
         WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
         10,
-        130,
+        170,
         200,
         30,
         hwnd,
@@ -458,19 +493,7 @@ void CreateNewWindow(HINSTANCE hInstance) {
         NULL
         );
 
-    HWND teleportbutton = CreateWindow(
-        L"BUTTON",
-        L"Toggle TeleportShift",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        10,
-        170,
-        200,
-        30,
-        hwnd,
-        (HMENU)L"TeleportEnabled",
-        hInstance,
-        NULL
-    );
+
 
     ShowWindow(hwnd, SW_SHOWDEFAULT);
 
@@ -690,31 +713,6 @@ void InitMiniGame() {
     std::cout << "finish game init\n";
 }
 
-void teleportShiftMove() {
-    if (GetAsyncKeyState('P')) {
-        const float pi = 2 * acos(0.0);
-        uintptr_t EnginePtr = (uintptr_t)GetModuleHandle(L"engine.dll");
-        float* look_x = (float*)(EnginePtr + 0x45808C);
-        float* look_y = (float*)(EnginePtr + 0x458090);
-        float* look_z = (float*)(EnginePtr + 0x458094);
-        //move in front of you for total of distance 33.33f
-        float angley = (float)((*look_y) * (pi / 180)); //convert angle to radians
-        float anglex = (float)((*look_x) * (pi / 180));
-        float x_axis = 33.33f * cos(angley);
-        float y_axis = 33.33f * sin(angley);
-        float z_axis = 33.33f * sin(-anglex);
-        std::cout << "y-axis face: " << y_axis << ", x-axis face: " << x_axis << std::endl;
-        uintptr_t ServerPtr = (uintptr_t)GetModuleHandle(L"server.dll");
-        uintptr_t fS = *(uintptr_t*)(ServerPtr + 0x006E4E94);
-        float* playerX = (float*)(fS + 0x304);
-        float* playerY = (float*)(fS + 0x308);
-        float* playerZ = (float*)(fS + 0x30C);
-        *playerX += x_axis;
-        *playerY += y_axis;
-        *playerZ += z_axis;
-    }
-}
-
 DWORD WINAPI MyThread(HMODULE module) {
     AllocConsole();
     FILE* f = new FILE;
@@ -808,7 +806,7 @@ DWORD WINAPI MyThread(HMODULE module) {
 
         if (hackState->teleportshift) {
             if (GetAsyncKeyState('P')) {
-                teleportShiftMove();
+                player->ShiftForward();
                 while (GetAsyncKeyState('P')) {
                     Sleep(1);
                 }
