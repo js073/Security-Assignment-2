@@ -714,10 +714,7 @@ void InitMiniGame() {
 }
 
 DWORD WINAPI MyThread(HMODULE module) {
-    AllocConsole();
-    FILE* f = new FILE;
-    freopen_s(&f, "CONOUT$", "w", stdout);
-
+   
     std::cout << "Injection active\n";
 
     // Load interfaces for the engine client and client entity list
@@ -816,8 +813,6 @@ DWORD WINAPI MyThread(HMODULE module) {
         ReleaseSRWLockShared(&srwlock);
     }
 
-    if (f) fclose(f);
-    FreeConsole();  
     FreeLibraryAndExitThread(module, 0);
     return 0;
 }
